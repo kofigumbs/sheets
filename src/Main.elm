@@ -91,6 +91,7 @@ view model =
                 [ style
                     [ ( "font-family", "cursive" )
                     , ( "padding-right", "15px" )
+                    , ( "user-select", "none" )
                     ]
                 ]
                 [ text "fx" ]
