@@ -5,6 +5,7 @@ import Dom
 import Html exposing (..)
 import Html.Attributes exposing (..)
 import Html.Events exposing (..)
+import Json.Decode exposing (fail, succeed)
 import Sheet
 import Task
 
@@ -17,6 +18,7 @@ type alias Model =
     , columns : Int
     , selected : Sheet.Position
     , sheet : Sheet.Cells
+    , shift : Bool
     }
 
 
@@ -26,6 +28,7 @@ init =
       , columns = 26
       , selected = Sheet.Position 1 1
       , sheet = Sheet.empty
+      , shift = False
       }
     , focusForumulaInput
     )
@@ -48,8 +51,10 @@ focusForumulaInput =
 
 type Msg
     = NoOp
-    | SelectCell Sheet.Position
     | InputFormula String
+    | SetShift Bool
+    | SelectCell Sheet.Position
+    | SelectNext Sheet.Direction
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -58,11 +63,17 @@ update msg model =
         NoOp ->
             ( model, Cmd.none )
 
+        InputFormula input ->
+            ( { model | sheet = Sheet.insertFormula model.selected input model.sheet }, Cmd.none )
+
+        SetShift value ->
+            ( { model | shift = value }, Cmd.none )
+
         SelectCell position ->
             ( { model | selected = position }, focusForumulaInput )
 
-        InputFormula input ->
-            ( { model | sheet = Sheet.insertFormula model.selected input model.sheet }, Cmd.none )
+        SelectNext direction ->
+            ( { model | selected = Sheet.next direction model.selected }, Cmd.none )
 
 
 
@@ -101,7 +112,10 @@ view model =
                 , style
                     [ ( "flex", "1" )
                     , ( "font-family", "monospace" )
+                    , ( "outline", "none" )
                     ]
+                , onKeyUp
+                , onKeyDown model.shift
                 , onInput InputFormula
                 , value <| Sheet.raw model.selected model.sheet
                 ]
@@ -249,6 +263,64 @@ lightGrey =
 highlightBlue : String
 highlightBlue =
     "#4184F5"
+
+
+
+-- KEYBOARD NAVIGATION AND MODIFIERS
+
+
+onKeyDown : Bool -> Attribute Msg
+onKeyDown shift =
+    onWithoutDefaults "keydown" <|
+        \code ->
+            if code == 16 {- SHIFT -} then
+                succeed <| SetShift True
+            else if code == 9 {- TAB -} then
+                succeed <| SelectNext <| negateIf shift Sheet.Right
+            else if code == 13 {- ENTER -} then
+                succeed <| SelectNext <| negateIf shift Sheet.Down
+            else if code == 38 {- UP ARROW -} then
+                succeed <| SelectNext Sheet.Up
+            else if code == 40 {- DOWN ARROW -} then
+                succeed <| SelectNext Sheet.Down
+            else
+                fail ""
+
+
+onKeyUp : Attribute Msg
+onKeyUp =
+    onWithoutDefaults "keyup" <|
+        \code ->
+            if code == 16 {- SHIFT -} then
+                succeed <| SetShift False
+            else
+                fail ""
+
+
+onWithoutDefaults : String -> (Int -> Json.Decode.Decoder msg) -> Attribute msg
+onWithoutDefaults direction func =
+    onWithOptions direction
+        { stopPropagation = True, preventDefault = True }
+        (Json.Decode.andThen func <| Json.Decode.field "keyCode" Json.Decode.int)
+
+
+negateIf : Bool -> Sheet.Direction -> Sheet.Direction
+negateIf condition direction =
+    if not condition then
+        direction
+    else
+        case direction of
+            Sheet.Up ->
+                Sheet.Down
+
+            Sheet.Down ->
+                Sheet.Up
+
+            Sheet.Left ->
+                Sheet.Right
+
+            Sheet.Right ->
+                Sheet.Left
 
 
 

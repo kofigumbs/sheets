@@ -1,4 +1,4 @@
-module Sheet exposing (Cells, Position(..), empty, insertFormula, raw, render)
+module Sheet exposing (Cells, Direction(..), Position(..), empty, insertFormula, next, raw, render)
 
 import Char
 import Dict exposing (Dict)
@@ -14,6 +14,29 @@ type Cells
 
 type Position
     = Position Int Int
+
+
+type Direction
+    = Up
+    | Down
+    | Left
+    | Right
+
+
+next : Direction -> Position -> Position
+next direction (Position row column) =
+    case direction of
+        Up ->
+            Position (row - 1) column
+
+        Down ->
+            Position (row + 1) column
+
+        Left ->
+            Position row (column - 1)
+
+        Right ->
+            Position row (column + 1)
 
 
 empty : Cells
