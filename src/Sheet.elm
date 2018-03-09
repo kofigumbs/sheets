@@ -44,7 +44,9 @@ render : Position -> Cells -> Html msg
 render (Position row column) (Cells dict) =
     case Dict.get ( row, column ) dict of
         Nothing ->
-            Html.text ""
+            Char.fromCode {- &nbsp; -} 0xA0
+                |> String.fromChar
+                |> Html.text
 
         Just formula ->
             run parser formula
@@ -127,11 +129,11 @@ isLetter c =
 solve : Dict ( Int, Int ) String -> Formula -> Result Error String
 solve dict formula =
     case formula of
-        Text text ->
-            Ok text
+        Text value ->
+            Ok value
 
-        Number number ->
-            Ok <| toString number
+        Number value ->
+            Ok <| toString value
 
         Function name args ->
             solveFunction dict name args
@@ -158,11 +160,11 @@ solveFunction dict name args =
 solveFloat : Dict ( Int, Int ) String -> Formula -> Maybe Float
 solveFloat dict formula =
     case formula of
-        Text text ->
+        Text _ ->
             Nothing
 
-        Number number ->
-            Just number
+        Number value ->
+            Just value
 
         Function name args ->
             solveFunction dict name args

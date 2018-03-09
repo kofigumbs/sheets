@@ -74,29 +74,42 @@ view model =
         offset =
             "30px"
     in
-    div
-        [ style [ ( "font-family", "monospace" ) ]
-        ]
-        [ input
-            [ type_ "text"
-            , id formulaInputId
-            , style
-                [ ( "width", "100vw" )
-                , ( "height", offset )
-                , ( "background-image", "url(/fx.png)" )
-                , ( "background-repeat", "no-repeat" )
-                , ( "background-size", offset )
-                , ( "padding-left", "35px" )
+    main_
+        []
+        [ div
+            [ let
+                segmentation =
+                    "25px"
+              in
+              style
+                [ ( "display", "flex" )
+                , ( "padding", segmentation )
+                , ( "width", "calc(100vw - (2 * " ++ segmentation ++ "))" )
+                , ( "background-color", "#F5F5F5" )
                 ]
-            , onInput InputFormula
-            , value <| Sheet.raw model.selected model.sheet
             ]
-            []
+            [ span
+                [ style
+                    [ ( "font-family", "cursive" )
+                    , ( "padding-right", "15px" )
+                    ]
+                ]
+                [ text "fx" ]
+            , input
+                [ type_ "text"
+                , id formulaInputId
+                , style
+                    [ ( "flex", "1" )
+                    , ( "font-family", "monospace" )
+                    ]
+                , onInput InputFormula
+                , value <| Sheet.raw model.selected model.sheet
+                ]
+                []
+            ]
         , table
             [ style
-                [ ( "width", "100vw" )
-                , ( "height", "calc(100vh - " ++ offset ++ ")" )
-                , ( "table-layout", "fixed" )
+                [ ( "table-layout", "fixed" )
                 , ( "border-collapse", "collapse" )
                 ]
             ]
@@ -128,6 +141,7 @@ cell { current, selected } sheet =
                 else
                     "solid 1px #DADADA"
               )
+            , ( "width", "100px" )
             ]
         , onClick <| SelectCell current
         ]
