@@ -84,6 +84,7 @@ view model =
                 [ ( "display", "flex" )
                 , ( "padding", formulaPad )
                 , ( "width", "calc(100vw - (2 * " ++ formulaPad ++ "))" )
+                , ( "border-bottom", "solid 1px " ++ darkGrey )
                 ]
             ]
             [ span
