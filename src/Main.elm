@@ -5,7 +5,7 @@ import Dom
 import Html exposing (..)
 import Html.Attributes exposing (..)
 import Html.Events exposing (..)
-import Json.Decode exposing (fail, succeed)
+import Json.Decode exposing (fail, oneOf, succeed)
 import Sheet
 import Task
 
@@ -17,8 +17,7 @@ type alias Model =
     { rows : Int
     , columns : Int
     , selected : Sheet.Position
-    , sheet : Sheet.Cells
-    , shift : Bool
+    , sheet : Sheet.Sheet
     }
 
 
@@ -28,7 +27,6 @@ init =
       , columns = 26
       , selected = Sheet.Position 1 1
       , sheet = Sheet.empty
-      , shift = False
       }
     , focusForumulaInput
     )
@@ -52,7 +50,6 @@ focusForumulaInput =
 type Msg
     = NoOp
     | InputFormula String
-    | SetShift Bool
     | SelectCell Sheet.Position
     | SelectNext Sheet.Direction
 
@@ -65,9 +62,6 @@ update msg model =
 
         InputFormula input ->
             ( { model | sheet = Sheet.insertFormula model.selected input model.sheet }, Cmd.none )
-
-        SetShift value ->
-            ( { model | shift = value }, Cmd.none )
 
         SelectCell position ->
             ( { model | selected = position }, focusForumulaInput )
@@ -114,9 +108,8 @@ view model =
                     , ( "font-family", "monospace" )
                     , ( "outline", "none" )
                     ]
-                , onKeyUp
-                , onKeyDown model.shift
                 , onInput InputFormula
+                , onDirectionalKey SelectNext
                 , value <| Sheet.raw model.selected model.sheet
                 ]
                 []
@@ -141,34 +134,44 @@ view model =
 
 grid : Model -> List (Html Msg)
 grid model =
-    axis (letterLabels model.columns model.selected) model.rows <|
-        \row ->
-            tr [] <|
-                axis (numberLabel row model.selected) model.columns <|
-                    \column ->
-                        let
-                            current =
-                                Sheet.Position row column
-                        in
-                        cell
-                            [ dataStyle current model.selected
-                            , onClick <| SelectCell current
-                            ]
-                            [ Sheet.render current model.sheet ]
+    letterLabels model.columns model.selected
+        :: axis model.rows (dataRow model)
+
+
+dataRow : Model -> Int -> Html Msg
+dataRow model index =
+    tr [] <|
+        numberLabel index model.selected
+            :: axis model.columns (dataCell model << Sheet.Position index)
+
+
+dataCell : Model -> Sheet.Position -> Html Msg
+dataCell model current =
+    cell
+        [ dataStyle current model.selected
+        , onClick <| SelectCell current
+        ]
+        [ Sheet.render current model.sheet ]
 
 
 letterLabels : Int -> Sheet.Position -> Html msg
-letterLabels amount (Sheet.Position _ column) =
-    tr [] <|
-        axis cornerCell amount <|
-            \index ->
-                cell
-                    [ labelStyle <| labelColor index column ]
-                    [ text <| String.fromChar <| Char.fromCode <| index + 64 ]
+letterLabels amount position =
+    thead []
+        [ tr [] <|
+            cornerCell
+                :: axis amount (letterLabelCell position)
+        ]
+
+
+letterLabelCell : Sheet.Position -> Int -> Html msg
+letterLabelCell { column } index =
+    cell
+        [ labelStyle <| labelColor index column ]
+        [ text <| asciiValue index ]
 
 
 numberLabel : Int -> Sheet.Position -> Html msg
-numberLabel index (Sheet.Position row _) =
+numberLabel index { row } =
     cell
         [ labelStyle <| labelColor index row ]
         [ text <| toString index ]
@@ -228,9 +231,9 @@ formulaPad =
     "35px"
 
 
-axis : a -> Int -> (Int -> a) -> List a
-axis head n func =
-    head :: axisHelp [] n func
+axis : Int -> (Int -> a) -> List a
+axis =
+    axisHelp []
 
 
 axisHelp : List a -> Int -> (Int -> a) -> List a
@@ -239,6 +242,11 @@ axisHelp acc n func =
         acc
     else
         axisHelp (func n :: acc) (n - 1) func
+
+
+asciiValue : Int -> String
+asciiValue n =
+    String.fromChar <| Char.fromCode <| n + 64
 
 
 
@@ -269,58 +277,41 @@ highlightBlue =
 -- KEYBOARD NAVIGATION AND MODIFIERS
 
 
-onKeyDown : Bool -> Attribute Msg
-onKeyDown shift =
-    onWithoutDefaults "keydown" <|
-        \code ->
-            if code == 16 {- SHIFT -} then
-                succeed <| SetShift True
-            else if code == 9 {- TAB -} then
-                succeed <| SelectNext <| negateIf shift Sheet.Right
-            else if code == 13 {- ENTER -} then
-                succeed <| SelectNext <| negateIf shift Sheet.Down
-            else if code == 38 {- UP ARROW -} then
-                succeed <| SelectNext Sheet.Up
-            else if code == 40 {- DOWN ARROW -} then
-                succeed <| SelectNext Sheet.Down
-            else
-                fail ""
-
-
-onKeyUp : Attribute Msg
-onKeyUp =
-    onWithoutDefaults "keyup" <|
-        \code ->
-            if code == 16 {- SHIFT -} then
-                succeed <| SetShift False
-            else
-                fail ""
-
-
-onWithoutDefaults : String -> (Int -> Json.Decode.Decoder msg) -> Attribute msg
-onWithoutDefaults direction func =
-    onWithOptions direction
+onDirectionalKey : (Sheet.Direction -> msg) -> Attribute msg
+onDirectionalKey transform =
+    onWithOptions "keydown"
         { stopPropagation = True, preventDefault = True }
-        (Json.Decode.andThen func <| Json.Decode.field "keyCode" Json.Decode.int)
+        (Json.Decode.field "keyCode" Json.Decode.int
+            |> Json.Decode.andThen direction
+            |> Json.Decode.map transform
+        )
 
 
-negateIf : Bool -> Sheet.Direction -> Sheet.Direction
-negateIf condition direction =
-    if not condition then
-        direction
+direction : Int -> Json.Decode.Decoder Sheet.Direction
+direction code =
+    if code == 9 {- TAB -} then
+        checkShift { yes = Sheet.Left, no = Sheet.Right }
+    else if code == 13 {- ENTER -} then
+        checkShift { yes = Sheet.Up, no = Sheet.Down }
+    else if code == 38 {- UP ARROW -} then
+        succeed Sheet.Up
+    else if code == 40 {- DOWN ARROW -} then
+        succeed Sheet.Down
     else
-        case direction of
-            Sheet.Up ->
-                Sheet.Down
+        fail ""
 
-            Sheet.Down ->
-                Sheet.Up
 
-            Sheet.Left ->
-                Sheet.Right
-
-            Sheet.Right ->
-                Sheet.Left
+checkShift : { yes : a, no : a } -> Json.Decode.Decoder a
+checkShift { yes, no } =
+    let
+        check holding =
+            if holding then
+                yes
+            else
+                no
+    in
+    Json.Decode.field "shiftKey" Json.Decode.bool
+        |> Json.Decode.map check
 
 
 

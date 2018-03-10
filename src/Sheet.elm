@@ -1,4 +1,4 @@
-module Sheet exposing (Cells, Direction(..), Position(..), empty, insertFormula, next, raw, render)
+module Sheet exposing (Direction(..), Position, Sheet, empty, insertFormula, next, raw, render)
 
 import Char
 import Dict exposing (Dict)
@@ -8,12 +8,16 @@ import Parser exposing (..)
 import Parser.LanguageKit exposing (tuple)
 
 
-type Cells
-    = Cells (Dict ( Int, Int ) String)
+type Sheet
+    = Sheet
+        { cells : Dict ( Int, Int ) String
+        }
 
 
-type Position
-    = Position Int Int
+type alias Position =
+    { row : Int
+    , column : Int
+    }
 
 
 type Direction
@@ -24,38 +28,41 @@ type Direction
 
 
 next : Direction -> Position -> Position
-next direction (Position row column) =
+next direction position =
     case direction of
         Up ->
-            Position (row - 1) column
+            { position | row = position.row - 1 }
 
         Down ->
-            Position (row + 1) column
+            { position | row = position.row + 1 }
 
         Left ->
-            Position row (column - 1)
+            { position | column = position.column - 1 }
 
         Right ->
-            Position row (column + 1)
+            { position | column = position.column + 1 }
 
 
-empty : Cells
+empty : Sheet
 empty =
-    Cells Dict.empty
+    Sheet { cells = Dict.empty }
 
 
-insertFormula : Position -> String -> Cells -> Cells
-insertFormula (Position row column) raw (Cells dict) =
-    Cells <|
-        if String.isEmpty raw then
-            Dict.remove ( row, column ) dict
-        else
-            Dict.insert ( row, column ) raw dict
+insertFormula : Position -> String -> Sheet -> Sheet
+insertFormula { row, column } raw (Sheet state) =
+    let
+        cells =
+            if String.isEmpty raw then
+                Dict.remove ( row, column ) state.cells
+            else
+                Dict.insert ( row, column ) raw state.cells
+    in
+    Sheet { state | cells = cells }
 
 
-raw : Position -> Cells -> String
-raw (Position row column) (Cells dict) =
-    case Dict.get ( row, column ) dict of
+raw : Position -> Sheet -> String
+raw { row, column } (Sheet { cells }) =
+    case Dict.get ( row, column ) cells of
         Nothing ->
             ""
 
@@ -63,9 +70,9 @@ raw (Position row column) (Cells dict) =
             formula
 
 
-render : Position -> Cells -> Html msg
-render (Position row column) (Cells dict) =
-    case Dict.get ( row, column ) dict of
+render : Position -> Sheet -> Html msg
+render { row, column } (Sheet { cells }) =
+    case Dict.get ( row, column ) cells of
         Nothing ->
             Char.fromCode {- &nbsp; -} 0xA0
                 |> String.fromChar
@@ -74,7 +81,7 @@ render (Position row column) (Cells dict) =
         Just formula ->
             run parser formula
                 |> Result.mapError BadParse
-                |> Result.andThen (solve dict)
+                |> Result.andThen (solve cells)
                 |> toHtml
 
 
@@ -150,7 +157,7 @@ isLetter c =
 
 
 solve : Dict ( Int, Int ) String -> Formula -> Result Error String
-solve dict formula =
+solve cells formula =
     case formula of
         Text value ->
             Ok value
@@ -159,29 +166,29 @@ solve dict formula =
             Ok <| toString value
 
         Function name args ->
-            solveFunction dict name args
+            solveFunction cells name args
                 |> Maybe.map toString
                 |> Result.fromMaybe BadFunction
 
 
 solveFunction : Dict ( Int, Int ) String -> String -> List Formula -> Maybe Float
-solveFunction dict name args =
+solveFunction cells name args =
     case String.toUpper name of
         "SUM" ->
-            Maybe.map List.sum <| validateAll (solveFloat dict) args
+            Maybe.map List.sum <| validateAll (solveFloat cells) args
 
         "MIN" ->
-            Maybe.andThen List.minimum <| validateAll (solveFloat dict) args
+            Maybe.andThen List.minimum <| validateAll (solveFloat cells) args
 
         "MAX" ->
-            Maybe.andThen List.maximum <| validateAll (solveFloat dict) args
+            Maybe.andThen List.maximum <| validateAll (solveFloat cells) args
 
         _ ->
             Nothing
 
 
 solveFloat : Dict ( Int, Int ) String -> Formula -> Maybe Float
-solveFloat dict formula =
+solveFloat cells formula =
     case formula of
         Text _ ->
             Nothing
@@ -190,7 +197,7 @@ solveFloat dict formula =
             Just value
 
         Function name args ->
-            solveFunction dict name args
+            solveFunction cells name args
 
 
 validateAll : (a -> Maybe b) -> List a -> Maybe (List b)
