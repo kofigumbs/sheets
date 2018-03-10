@@ -1,9 +1,7 @@
-module Sheet exposing (Direction(..), Position, Sheet, empty, insertFormula, next, raw, render)
+module Sheet exposing (Position, Return(..), Sheet, columnName, empty, evaluate, insert, lookup)
 
 import Char
 import Dict exposing (Dict)
-import Html exposing (Html)
-import Html.Attributes
 import Parser exposing (..)
 import Parser.LanguageKit exposing (tuple)
 
@@ -20,36 +18,13 @@ type alias Position =
     }
 
 
-type Direction
-    = Up
-    | Down
-    | Left
-    | Right
-
-
-next : Direction -> Position -> Position
-next direction position =
-    case direction of
-        Up ->
-            { position | row = position.row - 1 }
-
-        Down ->
-            { position | row = position.row + 1 }
-
-        Left ->
-            { position | column = position.column - 1 }
-
-        Right ->
-            { position | column = position.column + 1 }
-
-
 empty : Sheet
 empty =
     Sheet { cells = Dict.empty }
 
 
-insertFormula : Position -> String -> Sheet -> Sheet
-insertFormula { row, column } raw (Sheet state) =
+insert : Position -> String -> Sheet -> Sheet
+insert { row, column } raw (Sheet state) =
     let
         cells =
             if String.isEmpty raw then
@@ -60,46 +35,56 @@ insertFormula { row, column } raw (Sheet state) =
     Sheet { state | cells = cells }
 
 
-raw : Position -> Sheet -> String
-raw { row, column } (Sheet { cells }) =
-    case Dict.get ( row, column ) cells of
+lookup : Position -> Sheet -> Maybe String
+lookup { row, column } (Sheet { cells }) =
+    Dict.get ( row, column ) cells
+
+
+columnName : Int -> String
+columnName n =
+    String.fromChar <| Char.fromCode <| n + 64
+
+
+columnNumber : String -> Maybe Int
+columnNumber s =
+    case String.toList s of
+        [ c ] ->
+            Just <| Char.toCode c - 64
+
+        _ ->
+            Nothing
+
+
+
+-- EVALUATE CELLS
+
+
+type Return a
+    = Empty
+    | Error Reason
+    | Success a
+
+
+evaluate : Sheet -> Position -> Return String
+evaluate sheet position =
+    case lookup position sheet of
         Nothing ->
-            ""
+            Empty
 
         Just formula ->
-            formula
+            parse formula
+                |> Result.andThen (solve sheet)
+                |> either Error Success
 
 
-render : Position -> Sheet -> Html msg
-render { row, column } (Sheet { cells }) =
-    case Dict.get ( row, column ) cells of
-        Nothing ->
-            Char.fromCode {- &nbsp; -} 0xA0
-                |> String.fromChar
-                |> Html.text
-
-        Just formula ->
-            run parser formula
-                |> Result.mapError BadParse
-                |> Result.andThen (solve cells)
-                |> toHtml
-
-
-toHtml : Result Error String -> Html msg
-toHtml result =
+either : (x -> b) -> (a -> b) -> Result x a -> b
+either bad good result =
     case result of
-        Ok string ->
-            Html.text string
+        Err x ->
+            bad x
 
-        Err error ->
-            Html.span []
-                [ Html.text "#ERROR!"
-                , Html.input
-                    [ Html.Attributes.type_ "hidden"
-                    , Html.Attributes.value <| toString error
-                    ]
-                    []
-                ]
+        Ok x ->
+            good x
 
 
 
@@ -110,11 +95,18 @@ type Formula
     = Text String
     | Number Float
     | Function String (List Formula)
+    | Reference Position
 
 
-type Error
+type Reason
     = BadParse Parser.Error
     | BadFunction
+    | BadReference Position
+
+
+parse : String -> Result Reason Formula
+parse =
+    run parser >> Result.mapError BadParse
 
 
 parser : Parser Formula
@@ -124,7 +116,7 @@ parser =
             |. symbol "="
             |= equation
         , succeed Text
-            |= keep zeroOrMore (\_ -> True)
+            |= keep oneOrMore (\_ -> True)
         ]
         |. end
 
@@ -134,12 +126,29 @@ equation =
     oneOf
         [ succeed Number
             |= float
-        , succeed Function
-            |= keep oneOrMore isLetter
+        , delayedCommitMap Function
+            (keep oneOrMore isLetter)
+            (tuple spaces <| lazy <| \_ -> equation)
             |. spaces
-            |= tuple spaces (lazy (\_ -> equation))
-            |. spaces
+        , succeed Reference
+            |= position
         ]
+
+
+position : Parser Position
+position =
+    inContext "reference" <|
+        map2 (\column row -> Position row column) letter int
+
+
+letter : Parser Int
+letter =
+    keep (Exactly 1) Char.isUpper
+        |> andThen
+            (columnNumber
+                >> Maybe.map succeed
+                >> Maybe.withDefault (fail "")
+            )
 
 
 spaces : Parser ()
@@ -153,11 +162,11 @@ isLetter c =
 
 
 
--- INTERPRET
+-- SOLVE
 
 
-solve : Dict ( Int, Int ) String -> Formula -> Result Error String
-solve cells formula =
+solve : Sheet -> Formula -> Result Reason String
+solve sheet formula =
     case formula of
         Text value ->
             Ok value
@@ -166,29 +175,35 @@ solve cells formula =
             Ok <| toString value
 
         Function name args ->
-            solveFunction cells name args
+            solveFunction sheet name args
                 |> Maybe.map toString
                 |> Result.fromMaybe BadFunction
 
+        Reference position ->
+            lookup position sheet
+                |> Result.fromMaybe (BadReference position)
+                |> Result.andThen parse
+                |> Result.andThen (solve sheet)
 
-solveFunction : Dict ( Int, Int ) String -> String -> List Formula -> Maybe Float
-solveFunction cells name args =
+
+solveFunction : Sheet -> String -> List Formula -> Maybe Float
+solveFunction sheet name args =
     case String.toUpper name of
         "SUM" ->
-            Maybe.map List.sum <| validateAll (solveFloat cells) args
+            Maybe.map List.sum <| validateAll (solveFloat sheet) args
 
         "MIN" ->
-            Maybe.andThen List.minimum <| validateAll (solveFloat cells) args
+            Maybe.andThen List.minimum <| validateAll (solveFloat sheet) args
 
         "MAX" ->
-            Maybe.andThen List.maximum <| validateAll (solveFloat cells) args
+            Maybe.andThen List.maximum <| validateAll (solveFloat sheet) args
 
         _ ->
             Nothing
 
 
-solveFloat : Dict ( Int, Int ) String -> Formula -> Maybe Float
-solveFloat cells formula =
+solveFloat : Sheet -> Formula -> Maybe Float
+solveFloat sheet formula =
     case formula of
         Text _ ->
             Nothing
@@ -197,7 +212,12 @@ solveFloat cells formula =
             Just value
 
         Function name args ->
-            solveFunction cells name args
+            solveFunction sheet name args
+
+        Reference position ->
+            lookup position sheet
+                |> Maybe.andThen (parse >> Result.toMaybe)
+                |> Maybe.andThen (solveFloat sheet)
 
 
 validateAll : (a -> Maybe b) -> List a -> Maybe (List b)

@@ -51,7 +51,7 @@ type Msg
     = NoOp
     | InputFormula String
     | SelectCell Sheet.Position
-    | SelectNext Sheet.Direction
+    | SelectNext Direction
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -61,13 +61,13 @@ update msg model =
             ( model, Cmd.none )
 
         InputFormula input ->
-            ( { model | sheet = Sheet.insertFormula model.selected input model.sheet }, Cmd.none )
+            ( { model | sheet = Sheet.insert model.selected input model.sheet }, Cmd.none )
 
         SelectCell position ->
             ( { model | selected = position }, focusForumulaInput )
 
         SelectNext direction ->
-            ( { model | selected = Sheet.next direction model.selected }, Cmd.none )
+            ( { model | selected = move direction model.selected }, Cmd.none )
 
 
 
@@ -110,7 +110,9 @@ view model =
                     ]
                 , onInput InputFormula
                 , onDirectionalKey SelectNext
-                , value <| Sheet.raw model.selected model.sheet
+                , Sheet.lookup model.selected model.sheet
+                    |> Maybe.withDefault ""
+                    |> value
                 ]
                 []
             ]
@@ -151,7 +153,16 @@ dataCell model current =
         [ dataStyle current model.selected
         , onClick <| SelectCell current
         ]
-        [ Sheet.render current model.sheet ]
+        [ case Sheet.evaluate model.sheet current of
+            Sheet.Empty ->
+                text nbsp
+
+            Sheet.Error reason ->
+                span [ title <| toString reason ] [ text "#ERROR!" ]
+
+            Sheet.Success value ->
+                text value
+        ]
 
 
 letterLabels : Int -> Sheet.Position -> Html msg
@@ -167,7 +178,7 @@ letterLabelCell : Sheet.Position -> Int -> Html msg
 letterLabelCell { column } index =
     cell
         [ labelStyle <| labelColor index column ]
-        [ text <| asciiValue index ]
+        [ text <| Sheet.columnName index ]
 
 
 numberLabel : Int -> Sheet.Position -> Html msg
@@ -199,7 +210,7 @@ dataStyle : Sheet.Position -> Sheet.Position -> Attribute msg
 dataStyle current selected =
     if current == selected then
         style
-            [ ( "border", "double 1px " ++ highlightBlue )
+            [ ( "border", "double 2px " ++ highlightBlue )
             , ( "text-align", "left" )
             ]
     else
@@ -244,9 +255,9 @@ axisHelp acc n func =
         axisHelp (func n :: acc) (n - 1) func
 
 
-asciiValue : Int -> String
-asciiValue n =
-    String.fromChar <| Char.fromCode <| n + 64
+nbsp : String
+nbsp =
+    String.fromChar <| Char.fromCode 0xA0
 
 
 
@@ -277,7 +288,30 @@ highlightBlue =
 -- KEYBOARD NAVIGATION AND MODIFIERS
 
 
-onDirectionalKey : (Sheet.Direction -> msg) -> Attribute msg
+type Direction
+    = Up
+    | Down
+    | Left
+    | Right
+
+
+move : Direction -> Sheet.Position -> Sheet.Position
+move direction position =
+    case direction of
+        Up ->
+            { position | row = position.row - 1 }
+
+        Down ->
+            { position | row = position.row + 1 }
+
+        Left ->
+            { position | column = position.column - 1 }
+
+        Right ->
+            { position | column = position.column + 1 }
+
+
+onDirectionalKey : (Direction -> msg) -> Attribute msg
 onDirectionalKey transform =
     onWithOptions "keydown"
         { stopPropagation = True, preventDefault = True }
@@ -287,16 +321,16 @@ onDirectionalKey transform =
         )
 
 
-direction : Int -> Json.Decode.Decoder Sheet.Direction
+direction : Int -> Json.Decode.Decoder Direction
 direction code =
     if code == 9 {- TAB -} then
-        checkShift { yes = Sheet.Left, no = Sheet.Right }
+        checkShift { yes = Left, no = Right }
     else if code == 13 {- ENTER -} then
-        checkShift { yes = Sheet.Up, no = Sheet.Down }
+        checkShift { yes = Up, no = Down }
     else if code == 38 {- UP ARROW -} then
-        succeed Sheet.Up
+        succeed Up
     else if code == 40 {- DOWN ARROW -} then
-        succeed Sheet.Down
+        succeed Down
     else
         fail ""
 
