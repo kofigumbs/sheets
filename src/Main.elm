@@ -1,6 +1,7 @@
 module Main exposing (..)
 
 import Char
+import Direction exposing (Direction)
 import Dom
 import Html exposing (..)
 import Html.Attributes exposing (..)
@@ -70,6 +71,22 @@ update msg model =
             ( { model | selected = move direction model.selected }, Cmd.none )
 
 
+move : Direction -> Sheet.Position -> Sheet.Position
+move direction position =
+    case direction of
+        Direction.Up ->
+            { position | row = position.row - 1 }
+
+        Direction.Down ->
+            { position | row = position.row + 1 }
+
+        Direction.Left ->
+            { position | column = position.column - 1 }
+
+        Direction.Right ->
+            { position | column = position.column + 1 }
+
+
 
 -- VIEW
 
@@ -109,7 +126,7 @@ view model =
                     , ( "outline", "none" )
                     ]
                 , onInput InputFormula
-                , onDirectionalKey SelectNext
+                , Direction.onKeyDown SelectNext
                 , Sheet.lookup model.selected model.sheet
                     |> Maybe.withDefault ""
                     |> value
@@ -282,70 +299,6 @@ lightGrey =
 highlightBlue : String
 highlightBlue =
     "#4184F5"
-
-
-
--- KEYBOARD NAVIGATION AND MODIFIERS
-
-
-type Direction
-    = Up
-    | Down
-    | Left
-    | Right
-
-
-move : Direction -> Sheet.Position -> Sheet.Position
-move direction position =
-    case direction of
-        Up ->
-            { position | row = position.row - 1 }
-
-        Down ->
-            { position | row = position.row + 1 }
-
-        Left ->
-            { position | column = position.column - 1 }
-
-        Right ->
-            { position | column = position.column + 1 }
-
-
-onDirectionalKey : (Direction -> msg) -> Attribute msg
-onDirectionalKey transform =
-    onWithOptions "keydown"
-        { stopPropagation = True, preventDefault = True }
-        (Json.Decode.field "keyCode" Json.Decode.int
-            |> Json.Decode.andThen direction
-            |> Json.Decode.map transform
-        )
-
-
-direction : Int -> Json.Decode.Decoder Direction
-direction code =
-    if code == 9 {- TAB -} then
-        checkShift { yes = Left, no = Right }
-    else if code == 13 {- ENTER -} then
-        checkShift { yes = Up, no = Down }
-    else if code == 38 {- UP ARROW -} then
-        succeed Up
-    else if code == 40 {- DOWN ARROW -} then
-        succeed Down
-    else
-        fail ""
-
-
-checkShift : { yes : a, no : a } -> Json.Decode.Decoder a
-checkShift { yes, no } =
-    let
-        check holding =
-            if holding then
-                yes
-            else
-                no
-    in
-    Json.Decode.field "shiftKey" Json.Decode.bool
-        |> Json.Decode.map check
 
 
 
