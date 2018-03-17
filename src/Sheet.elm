@@ -40,6 +40,10 @@ lookup { row, column } (Sheet { cells }) =
     Dict.get ( row, column ) cells
 
 
+
+-- TODO -- What happens after the 'Z' column?
+
+
 columnName : Int -> String
 columnName n =
     String.fromChar <| Char.fromCode <| n + 64

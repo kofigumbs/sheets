@@ -6,7 +6,6 @@ import Dom
 import Html exposing (..)
 import Html.Attributes exposing (..)
 import Html.Events exposing (..)
-import Json.Decode exposing (fail, oneOf, succeed)
 import Sheet
 import Task
 
@@ -127,9 +126,7 @@ view model =
                     ]
                 , onInput InputFormula
                 , Direction.onKeyDown SelectNext
-                , Sheet.lookup model.selected model.sheet
-                    |> Maybe.withDefault ""
-                    |> value
+                , textValue <| Sheet.lookup model.selected model.sheet
                 ]
                 []
             ]
@@ -174,11 +171,11 @@ dataCell model current =
             Sheet.Empty ->
                 text nbsp
 
-            Sheet.Error reason ->
-                span [ title <| toString reason ] [ text "#ERROR!" ]
-
             Sheet.Success value ->
                 text value
+
+            Sheet.Error reason ->
+                span [ title <| toString reason ] [ text "#ERROR!" ]
         ]
 
 
@@ -221,6 +218,11 @@ cell attributes =
             , ( "white-space", "nowrap" )
             ]
             :: attributes
+
+
+textValue : Maybe String -> Attribute msg
+textValue =
+    value << Maybe.withDefault ""
 
 
 dataStyle : Sheet.Position -> Sheet.Position -> Attribute msg
