@@ -1,11 +1,39 @@
 module Ui.Grid exposing (Dimmensions, view)
 
 import Char
-import Html exposing (..)
-import Html.Attributes exposing (..)
-import Html.Events exposing (onClick)
 import Sheet exposing (Sheet)
+import Svg exposing (..)
+import Svg.Attributes exposing (..)
+import Svg.Events exposing (onClick)
+import Svg.Lazy exposing (..)
 import Ui.Palette
+
+
+-- CONFIG
+
+
+cellWidth : Int
+cellWidth =
+    110
+
+
+cellHeight : Int
+cellHeight =
+    25
+
+
+cellPadding : String
+cellPadding =
+    "7"
+
+
+fontColor : String
+fontColor =
+    "black"
+
+
+
+-- DRAW THE SVG
 
 
 type alias Dimmensions =
@@ -14,109 +42,104 @@ type alias Dimmensions =
     }
 
 
-view : (Sheet.Position -> msg) -> Dimmensions -> Sheet.Position -> Sheet -> Html msg
+view : (Sheet.Position -> msg) -> Dimmensions -> Sheet.Position -> Sheet -> Svg msg
 view toSelect dimmensions selected sheet =
-    table
-        [ style
-            [ ( "width", "100%" )
-            , ( "table-layout", "fixed" )
-            , ( "border-collapse", "collapse" )
-            ]
+    svg
+        [ width <| toString <| cellWidth * (dimmensions.columns + 1)
+        , height <| toString <| cellHeight * (dimmensions.rows + 1)
+        , fill "white"
+        , fontFamily "sans-serif"
         ]
-    <|
-        letterLabels dimmensions.columns selected
-            :: axis dimmensions.rows (dataRow toSelect dimmensions selected sheet)
+        [ letterLabels dimmensions.columns selected
+        , axis dimmensions.rows <| row toSelect dimmensions selected sheet
+        ]
 
 
-dataRow : (Sheet.Position -> msg) -> Dimmensions -> Sheet.Position -> Sheet -> Int -> Html msg
-dataRow toSelect { columns } selected sheet index =
-    tr [] <|
-        numberLabel index selected
-            :: axis columns (dataCell toSelect selected sheet << Sheet.Position index)
+row : (Sheet.Position -> msg) -> Dimmensions -> Sheet.Position -> Sheet -> Int -> Svg msg
+row toSelect { columns } selected sheet index =
+    g [ scaledTransform index 0 ]
+        [ numberLabel selected index
+        , axis columns <| dataCell toSelect selected sheet << Sheet.Position index
+        ]
 
 
-dataCell : (Sheet.Position -> msg) -> Sheet.Position -> Sheet -> Sheet.Position -> Html msg
+dataCell : (Sheet.Position -> msg) -> Sheet.Position -> Sheet -> Sheet.Position -> Svg msg
 dataCell toSelect selected sheet current =
     cell
-        [ dataStyle current selected
+        [ scaledTransform 0 current.column
+        , dataStyle current selected
         , onClick <| toSelect current
         ]
         [ case Sheet.evaluate sheet current of
             Sheet.Empty ->
-                text nbsp
+                cellText nbsp
 
             Sheet.Success value ->
-                text value
+                cellText value
 
             Sheet.Error reason ->
-                span [ title <| toString reason ] [ text "#ERROR!" ]
+                g []
+                    [ cellText "#ERROR!"
+                    , Svg.title [] [ text <| toString reason ]
+                    ]
         ]
 
 
-letterLabels : Int -> Sheet.Position -> Html msg
-letterLabels amount position =
-    thead []
-        [ tr [] <| cornerCell :: axis amount (letterLabelCell position) ]
+letterLabels : Int -> Sheet.Position -> Svg msg
+letterLabels columns position =
+    g [] [ cornerCell, axis columns (letterLabelCell position) ]
 
 
-letterLabelCell : Sheet.Position -> Int -> Html msg
+letterLabelCell : Sheet.Position -> Int -> Svg msg
 letterLabelCell { column } index =
     cell
-        [ labelStyle <| labelColor index column ]
-        [ text <| Sheet.columnName index ]
+        [ scaledTransform 0 index
+        , labelStyle <| labelColor index column
+        ]
+        [ cellText <| Sheet.columnName index ]
 
 
-numberLabel : Int -> Sheet.Position -> Html msg
-numberLabel index { row } =
+numberLabel : Sheet.Position -> Int -> Svg msg
+numberLabel position index =
     cell
-        [ labelStyle <| labelColor index row ]
-        [ text <| toString index ]
+        [ labelStyle <| labelColor index position.row
+        ]
+        [ cellText <| toString index ]
 
 
-cornerCell : Html msg
+cornerCell : Svg msg
 cornerCell =
-    cell [ labelStyle Ui.Palette.lightGrey ] [ text "" ]
+    cell [ labelStyle Ui.Palette.lightGrey ] [ cellText nbsp ]
 
 
-cell : List (Attribute msg) -> List (Html msg) -> Html msg
-cell attributes =
-    td <|
-        style
-            [ ( "width", "100px" )
-            , ( "max-width", "100px" )
-            , ( "padding", "5px" )
-            , ( "overflow", "hidden" )
-            , ( "white-space", "nowrap" )
-            ]
-            :: attributes
+cell : List (Attribute msg) -> List (Svg msg) -> Svg msg
+cell extras children =
+    g (withCellSize extras) <| rect (withCellSize []) [] :: children
 
 
-textValue : Maybe String -> Attribute msg
-textValue =
-    value << Maybe.withDefault ""
+scaledTransform : Int -> Int -> Attribute msg
+scaledTransform rowIndex columnIndex =
+    transform <|
+        "translate("
+            ++ toString (columnIndex * cellWidth)
+            ++ ","
+            ++ toString (rowIndex * cellHeight)
+            ++ ")"
 
 
 dataStyle : Sheet.Position -> Sheet.Position -> Attribute msg
 dataStyle current selected =
-    if current == selected then
-        style
-            [ ( "border", "double 2px " ++ Ui.Palette.highlightBlue )
-            , ( "text-align", "left" )
-            ]
-    else
-        style
-            [ ( "border", "solid 1px " ++ Ui.Palette.mediumGray )
-            , ( "text-align", "right" )
-            ]
+    Svg.Attributes.style <|
+        if current == selected then
+            "stroke-width:2px;stroke:" ++ Ui.Palette.highlightBlue
+        else
+            "stroke-width:1px;stroke:" ++ Ui.Palette.mediumGray
 
 
 labelStyle : String -> Attribute msg
 labelStyle color =
-    style
-        [ ( "text-align", "center" )
-        , ( "background-color", color )
-        , ( "border", "double 1px " ++ Ui.Palette.darkGrey )
-        ]
+    Svg.Attributes.style
+        ("fill:" ++ color ++ ";stroke-width:1px;stroke:" ++ Ui.Palette.darkGrey)
 
 
 labelColor : Int -> Int -> String
@@ -127,9 +150,27 @@ labelColor current selected =
         Ui.Palette.lightGrey
 
 
-axis : Int -> (Int -> a) -> List a
-axis =
-    axisHelp []
+withCellSize : List (Attribute msg) -> List (Attribute msg)
+withCellSize extras =
+    width (toString cellWidth) :: height (toString cellHeight) :: extras
+
+
+cellText : String -> Svg msg
+cellText value =
+    text_
+        [ Svg.Attributes.style <|
+            "stroke:none;fill:"
+                ++ fontColor
+                ++ ";"
+                ++ disableSelect
+        , alignmentBaseline "before-edge"
+        ]
+        [ text value ]
+
+
+axis : Int -> (Int -> Svg msg) -> Svg msg
+axis n =
+    g [] << axisHelp [] n
 
 
 axisHelp : List a -> Int -> (Int -> a) -> List a
@@ -143,3 +184,13 @@ axisHelp acc n func =
 nbsp : String
 nbsp =
     String.fromChar <| Char.fromCode 0xA0
+
+
+disableSelect : String
+disableSelect =
+    """
+    -webkit-user-select:none;
+    -moz-user-select:none;
+    -ms-user-select:none;
+    user-select:none;
+    """
