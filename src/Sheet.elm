@@ -119,10 +119,24 @@ parser =
         [ succeed identity
             |. symbol "="
             |= equation
-        , succeed Text
+
+        -- TODO leading spaces
+        -- TODO trailing spaces
+        -- TODO number with trailing non-numeric characters
+        , succeed textOrNumber
             |= keep oneOrMore (\_ -> True)
         ]
         |. end
+
+
+textOrNumber : String -> Formula
+textOrNumber raw =
+    case String.toFloat raw of
+        Err _ ->
+            Text raw
+
+        Ok value ->
+            Number value
 
 
 equation : Parser Formula
