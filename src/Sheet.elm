@@ -1,4 +1,4 @@
-module Sheet exposing (Position, Return(..), Sheet, columnName, empty, evaluate, insert, lookup)
+module Sheet exposing (Position, Return(..), Sheet, blur, columnName, empty, evaluate, insert, lookup)
 
 import Char
 import Dict exposing (Dict)
@@ -13,9 +13,7 @@ type Sheet
 
 
 type alias Position =
-    { row : Int
-    , column : Int
-    }
+    { row : Int, column : Int }
 
 
 empty : Sheet
@@ -33,6 +31,11 @@ insert { row, column } raw (Sheet state) =
                 Dict.insert ( row, column ) raw state.cells
     in
     Sheet { state | cells = cells }
+
+
+blur : Sheet -> Sheet
+blur (Sheet state) =
+    Sheet { state | cells = Dict.map (always String.trim) state.cells }
 
 
 lookup : Position -> Sheet -> Maybe String
@@ -119,24 +122,10 @@ parser =
         [ succeed identity
             |. symbol "="
             |= equation
-
-        -- TODO leading spaces
-        -- TODO trailing spaces
-        -- TODO number with trailing non-numeric characters
-        , succeed textOrNumber
+        , succeed Text
             |= keep oneOrMore (\_ -> True)
         ]
         |. end
-
-
-textOrNumber : String -> Formula
-textOrNumber raw =
-    case String.toFloat raw of
-        Err _ ->
-            Text raw
-
-        Ok value ->
-            Number value
 
 
 equation : Parser Formula
@@ -223,8 +212,10 @@ solveFunction sheet name args =
 solveFloat : Sheet -> Formula -> Maybe Float
 solveFloat sheet formula =
     case formula of
-        Text _ ->
-            Nothing
+        Text value ->
+            String.trim value
+                |> String.toFloat
+                |> Result.toMaybe
 
         Number value ->
             Just value

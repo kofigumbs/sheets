@@ -63,10 +63,15 @@ update msg model =
             ( { model | sheet = Sheet.insert model.selected input model.sheet }, Cmd.none )
 
         SelectCell position ->
-            ( { model | selected = position }, focusForumulaInput )
+            ( select position model, focusForumulaInput )
 
         SelectNext direction ->
-            ( { model | selected = move direction model.selected }, Cmd.none )
+            ( select (move direction model.selected) model, Cmd.none )
+
+
+select : Sheet.Position -> Model -> Model
+select position model =
+    { model | selected = position, sheet = Sheet.blur model.sheet }
 
 
 move : Direction -> Sheet.Position -> Sheet.Position
